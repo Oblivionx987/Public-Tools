@@ -1,0 +1,72 @@
+# Set variables
+$javaDownloadUrl = "https://github.com/adoptium/temurin11-binaries/releases/latest/download/OpenJDK11U-jre_x64_windows_hotspot_11.msi"
+$javaInstaller = "$env:TEMP\jre11.msi"
+$rtmtPath = "C:\Program Files (x86)\Cisco Systems\RTMT"
+$rtmtConfigFile = "$rtmtPath\bin\run.properties"
+
+Write-Host "Checking if Java is installed..."
+
+# Check for Java
+$java = Get-Command java -ErrorAction SilentlyContinue
+if (-not $java) {
+    Write-Host "Java not found. Downloading JRE 11..."
+    Invoke-WebRequest -Uri $javaDownloadUrl -OutFile $javaInstaller
+
+    Write-Host "Installing Java..."
+    Start-Process msiexec.exe -ArgumentList "/i `"$javaInstaller`" /quiet /norestart" -Wait
+
+    # Verify install
+    $java = Get-Command java -ErrorAction SilentlyContinue
+    if ($java) {
+        Write-Host "Java successfully installed."
+    } else {
+        Write-Error "Java installation failed. Exiting..."
+        exit 1
+    }
+} else {
+    Write-Host "Java is already installed: $($java.Source)"
+}
+
+# Get JAVA path
+$javaHome = (Get-ChildItem "HKLM:\SOFTWARE\AdoptOpenJDK\JRE\11" -ErrorAction SilentlyContinue).GetValue("Path")
+
+if (-not $javaHome) {
+    $javaHome = (Get-ChildItem "HKLM:\SOFTWARE\JavaSoft\Java Runtime Environment" -ErrorAction SilentlyContinue |
+                 Get-ItemProperty).JavaHome
+}
+
+if (-not $javaHome) {
+    Write-Error "Unable to locate JAVA_HOME. Please set manually."
+    exit 1
+}
+
+Write-Host "JAVA_HOME found: $javaHome"
+
+# Update RTMT Java path
+if (Test-Path $rtmtConfigFile) {
+    Write-Host "Configuring RTMT to use JAVA..."
+    $runProps = Get-Content $rtmtConfigFile
+    $updatedProps = @()
+
+    foreach ($line in $runProps) {
+        if ($line -match "^JAVA_HOME=") {
+            $updatedProps += "JAVA_HOME=$javaHome"
+        } else {
+            $updatedProps += $line
+        }
+    }
+
+    if (-not ($updatedProps -match "^JAVA_HOME=")) {
+        $updatedProps += "JAVA_HOME=$javaHome"
+    }
+
+    $updatedProps | Set-Content $rtmtConfigFile
+
+    Write-Host "RTMT Java configuration updated successfully."
+} else {
+    Write-Warning "RTMT not found at expected path: $rtmtPath"
+}
+
+# Cleanup
+Remove-Item $javaInstaller -Force -ErrorAction SilentlyContinue
+Write-Host "Setup complete."
