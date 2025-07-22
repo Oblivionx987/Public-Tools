@@ -1,0 +1,71 @@
+# Search term
+$searchTerm = "Microsoft.Bing"
+
+# Registry paths to search
+$registryPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore",
+    "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages"
+)
+
+# Collect found packages
+$foundPackages = @()
+
+Write-Host "`n🔍 Searching registry for AppX packages matching '$searchTerm*'..." -ForegroundColor Cyan
+
+foreach ($path in $registryPaths) {
+    if (Test-Path $path) {
+        Get-ChildItem -Path $path -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.PSChildName -like "$searchTerm*") {
+                $packageInfo = [PSCustomObject]@{
+                    Name = $_.PSChildName
+                    Path = $_.PSPath
+                }
+                $foundPackages += $packageInfo
+            }
+        }
+    }
+}
+
+if ($foundPackages.Count -eq 0) {
+    Write-Host "`n❌ No Bing AppX packages found." -ForegroundColor Red
+    return
+}
+
+# Display found results
+Write-Host "`n✅ Found $($foundPackages.Count) matching package(s):" -ForegroundColor Green
+$foundPackages | Format-Table -AutoSize
+
+# Loop through and prompt for removal
+foreach ($pkg in $foundPackages) {
+    Write-Host "`n➡️ Package: $($pkg.Name)" -ForegroundColor Yellow
+    $choice = Read-Host "Do you want to attempt to remove this package? (Y/N)"
+    
+    if ($choice -match '^[Yy]$') {
+        try {
+            # Try Remove-AppxPackage for current user
+            $appx = Get-AppxPackage -Name $pkg.Name -ErrorAction SilentlyContinue
+            if ($appx) {
+                Write-Host "Attempting to remove AppxPackage: $($appx.PackageFullName)" -ForegroundColor Cyan
+                Remove-AppxPackage -Package $appx.PackageFullName
+                Write-Host "✅ Removed for current user." -ForegroundColor Green
+                continue
+            }
+
+            # Try Remove-AppxProvisionedPackage for all users (admin only)
+            $prov = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like "$($pkg.Name)*" }
+            if ($prov) {
+                Write-Host "Attempting to remove provisioned package: $($prov.DisplayName)" -ForegroundColor Cyan
+                Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName
+                Write-Host "✅ Removed provisioned package." -ForegroundColor Green
+            } else {
+                Write-Host "⚠️ Package found in registry but not installed for current user or provisioned for all users." -ForegroundColor DarkYellow
+            }
+        }
+        catch {
+            Write-Host "❌ Error while attempting removal: $_" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "⏭️ Skipped $($pkg.Name)" -ForegroundColor Gray
+    }
+}
