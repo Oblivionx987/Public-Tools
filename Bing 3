@@ -1,0 +1,57 @@
+# Define your search term
+$searchTerm = "bing"
+
+# Find installed AppX packages for current user
+$installedPackages = Get-AppxPackage | Where-Object { $_.Name -like "*$searchTerm*" }
+
+# Find provisioned AppX packages (installed for new users)
+$provisionedPackages = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like "*$searchTerm*" }
+
+# Combine both into one list with type info
+$foundPackages = @()
+$installedPackages | ForEach-Object {
+    $foundPackages += [PSCustomObject]@{
+        Name = $_.Name
+        Type = "User"
+        Identifier = $_.PackageFullName
+    }
+}
+$provisionedPackages | ForEach-Object {
+    $foundPackages += [PSCustomObject]@{
+        Name = $_.DisplayName
+        Type = "Provisioned"
+        Identifier = $_.PackageName
+    }
+}
+
+if ($foundPackages.Count -eq 0) {
+    Write-Host "❌ No AppX packages matching '$searchTerm' were found." -ForegroundColor Red
+    return
+}
+
+# Show matches
+Write-Host "`n✅ Found $($foundPackages.Count) matching AppX package(s):" -ForegroundColor Green
+$foundPackages | Format-Table -AutoSize
+
+# Prompt for removal
+foreach ($pkg in $foundPackages) {
+    Write-Host "`n➡️ Package: $($pkg.Name) [$($pkg.Type)]" -ForegroundColor Yellow
+    $choice = Read-Host "Do you want to remove this package? (Y/N)"
+    
+    if ($choice -match '^[Yy]$') {
+        try {
+            if ($pkg.Type -eq "User") {
+                Remove-AppxPackage -Package $pkg.Identifier -ErrorAction Stop
+                Write-Host "✅ Removed AppX package for current user." -ForegroundColor Green
+            } elseif ($pkg.Type -eq "Provisioned") {
+                Remove-AppxProvisionedPackage -Online -PackageName $pkg.Identifier -ErrorAction Stop
+                Write-Host "✅ Removed provisioned AppX package." -ForegroundColor Green
+            }
+        }
+        catch {
+            Write-Host "❌ Failed to remove $($pkg.Identifier): $_" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "⏭️ Skipped $($pkg.Name)" -ForegroundColor Gray
+    }
+}
