@@ -1,0 +1,25 @@
+# Define search term
+$searchTerm = "Microsoft.Bing"
+
+# Define common registry paths for AppX packages
+$registryPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore",
+    "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages"
+)
+
+Write-Host "Searching for AppX packages related to '$searchTerm'..." -ForegroundColor Cyan
+
+foreach ($path in $registryPaths) {
+    if (Test-Path $path) {
+        Get-ChildItem -Path $path -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.PSChildName -like "$searchTerm*") {
+                Write-Host "Found: $($_.PSChildName)" -ForegroundColor Green
+                Write-Host "Path: $($_.PSPath)" -ForegroundColor Yellow
+                Write-Host ""
+            }
+        }
+    } else {
+        Write-Host "Registry path not found: $path" -ForegroundColor Red
+    }
+}
